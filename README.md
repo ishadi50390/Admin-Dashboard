@@ -107,6 +107,18 @@ The server will automatically:
 - Create default admin user: `admin@example.com` / `admin123`
 - Create default regular user: `user@example.com` / `user123`
 
+6. **(Optional) Seed the database with sample data**
+   ```bash
+   npm run seed
+   ```
+   
+   This will populate the database with:
+   - 3 users (1 admin, 2 regular users)
+   - 3 product categories
+   - 6 sample products
+   - 3 sample orders with items
+   - 5 configuration settings
+
 ## Usage
 
 ### Accessing the Application
