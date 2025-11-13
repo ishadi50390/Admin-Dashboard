@@ -24,12 +24,17 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Session configuration
+// Note: For production environments, consider implementing CSRF protection
+// AdminJS provides built-in CSRF protection for form submissions
+// Additional API endpoints may benefit from csrf-sync or other modern CSRF solutions
 app.use(session({
   secret: process.env.JWT_SECRET || 'your-secret-key',
   resave: false,
   saveUninitialized: false,
   cookie: {
     secure: process.env.NODE_ENV === 'production',
+    httpOnly: true, // Prevents client-side JS from accessing cookies
+    sameSite: 'strict', // CSRF protection via SameSite cookie attribute
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
 }));

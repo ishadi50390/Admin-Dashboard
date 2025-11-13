@@ -263,6 +263,25 @@ Admin-Dashboard/
 - Run `npm install` again
 - Delete `node_modules` and reinstall
 
+## Documentation
+
+- **[README.md](README.md)** - This file (overview and quick start)
+- **[FEATURES.md](FEATURES.md)** - Detailed feature documentation
+- **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - Step-by-step setup instructions
+- **[SECURITY.md](SECURITY.md)** - Security documentation and best practices
+
+## Security
+
+This application implements multiple security measures including:
+- Bcrypt password hashing
+- JWT authentication
+- Role-based access control
+- HttpOnly, Secure, and SameSite cookies
+- Input validation
+- SQL injection prevention
+
+For detailed security information, production hardening guide, and security checklist, see [SECURITY.md](SECURITY.md).
+
 ## License
 
 ISC
