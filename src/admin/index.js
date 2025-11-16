@@ -38,11 +38,10 @@ const ownsOrder = async (userId, orderId) => {
   }
 
   const order = await Order.findByPk(orderId, {
-    attributes: ['id', 'userId'],
-    raw: true
+    attributes: ['id', 'userId']
   });
 
-  return order?.user_id === userId;
+  return order?.userId === userId;
 };
 
 const ownsOrderItem = async (userId, orderItemId) => {
@@ -63,6 +62,28 @@ const ownsOrderItem = async (userId, orderItemId) => {
 
   return Boolean(orderItem) && orderItem.order?.userId === userId;
 };
+
+const parseInteger = (value) => {
+  const parsed = Number.parseInt(value ?? 0, 10);
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+const parseDecimal = (value) => {
+  const parsed = Number.parseFloat(value ?? 0);
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+async function getOrderMetrics(whereClause = {}) {
+  const [orderCount, totalSpentRaw] = await Promise.all([
+    Order.count({ where: whereClause }),
+    Order.sum('totalAmount', { where: whereClause })
+  ]);
+
+  return {
+    totalOrders: parseInteger(orderCount),
+    totalRevenue: parseDecimal(totalSpentRaw)
+  };
+}
 
 const setPasswordField = async (request) => {
   if (!request.payload) {
@@ -109,21 +130,60 @@ const adminJs = new AdminJS({
       }
 
       const isCurrentAdmin = context.currentAdmin.role === 'admin';
+      let totalUsers = null;
+      let totalOrders = 0;
+      let totalProducts = 0;
+      let totalRevenue = 0;
+      let recentOrdersRows = [];
 
-      const [totalUsers, totalOrders, totalProducts, revenueRows, recentOrdersRows] = await Promise.all([
-        isCurrentAdmin ? User.count() : Promise.resolve(null),
-        isCurrentAdmin ? Order.count() : Order.count({ where: { userId: context.currentAdmin.id } }),
-        Product.count(),
-        Order.sum('totalAmount', {
-          where: isCurrentAdmin ? {} : { userId: context.currentAdmin.id }
-        }),
-        Order.findAll({
-          where: isCurrentAdmin ? {} : { userId: context.currentAdmin.id },
-          include: [{ model: User, as: 'user', attributes: ['name', 'email'] }],
-          order: [['createdAt', 'DESC']],
-          limit: 5
-        })
-      ]);
+      if (isCurrentAdmin) {
+        const [userCount, productCount, metrics, ordersRows] = await Promise.all([
+          User.count(),
+          Product.count(),
+          getOrderMetrics(),
+          Order.findAll({
+            include: [{ model: User, as: 'user', attributes: ['name', 'email'] }],
+            order: [['createdAt', 'DESC']],
+            limit: 5
+          })
+        ]);
+
+        totalUsers = userCount;
+        totalOrders = metrics.totalOrders;
+        totalProducts = productCount;
+        totalRevenue = metrics.totalRevenue;
+        recentOrdersRows = ordersRows;
+        console.log('Dashboard summary (admin)', {
+          userId: context.currentAdmin.id,
+          totalUsers,
+          totalOrders,
+          totalProducts,
+          totalRevenue,
+          recentOrders: recentOrdersRows.length
+        });
+      } else {
+        const [productCount, metrics, ordersRows] = await Promise.all([
+          Product.count(),
+          getOrderMetrics({ userId: context.currentAdmin.id }),
+          Order.findAll({
+            where: { userId: context.currentAdmin.id },
+            include: [{ model: User, as: 'user', attributes: ['name', 'email'] }],
+            order: [['createdAt', 'DESC']],
+            limit: 5
+          })
+        ]);
+
+        totalProducts = productCount;
+        totalOrders = metrics.totalOrders;
+        totalRevenue = metrics.totalRevenue;
+        recentOrdersRows = ordersRows;
+        console.log('Dashboard summary (user)', {
+          userId: context.currentAdmin.id,
+          totalOrders,
+          totalRevenue,
+          recentOrders: recentOrdersRows.length
+        });
+      }
 
       const recentOrders = recentOrdersRows.map((order) => ({
         id: order.id,
@@ -138,7 +198,7 @@ const adminJs = new AdminJS({
           totalUsers,
           totalOrders,
           totalProducts,
-          totalRevenue: Number(revenueRows || 0)
+          totalRevenue
         },
         recentOrders,
         currentAdmin: {
@@ -150,57 +210,6 @@ const adminJs = new AdminJS({
       };
     },
     component: componentLoader.add('Dashboard', './components/Dashboard.jsx')
-  },
-  pages: {
-    settings: {
-      label: 'Settings',
-      handler: async (request, response, context) => {
-        if (!isAdmin(context)) {
-          return {
-            notice: {
-              message: 'You are not authorized to access settings',
-              type: 'error'
-            }
-          };
-        }
-
-        if (request.method === 'post') {
-          const { key, value } = request.payload;
-          if (!key || !value) {
-            return {
-              notice: {
-                message: 'Key and value are required',
-                type: 'error'
-              }
-            };
-          }
-
-          const [setting] = await Setting.findOrCreate({
-            where: { key },
-            defaults: { value }
-          });
-
-          if (setting.value !== value) {
-            setting.value = value;
-            await setting.save();
-          }
-
-          return {
-            updated: true
-          };
-        }
-
-        const settings = await Setting.findAll({ order: [['key', 'ASC']] });
-        return {
-          settings: settings.map((setting) => ({
-            id: setting.id,
-            key: setting.key,
-            value: setting.value
-          }))
-        };
-      },
-      component: componentLoader.add('SettingsPage', './components/SettingsPage.jsx')
-    }
   },
   resources: [
     {

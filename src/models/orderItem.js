@@ -3,6 +3,28 @@ import { DataTypes, Model } from 'sequelize';
 export default function initOrderItem(sequelize) {
   class OrderItem extends Model {}
 
+  async function updateOrderTotal(orderId, transaction) {
+    if (!orderId) {
+      return;
+    }
+
+    const items = await OrderItem.findAll({
+      where: { orderId },
+      attributes: ['quantity', 'unit_price'],
+      transaction
+    });
+
+    const totalAmount = items.reduce((sum, item) => {
+      const price = Number.parseFloat(item.price);
+      return sum + (Number.isNaN(price) ? 0 : price * item.quantity);
+    }, 0);
+
+    await sequelize.models.Order.update(
+      { totalAmount },
+      { where: { id: orderId }, transaction }
+    );
+  }
+
   OrderItem.init(
     {
       id: {
@@ -43,6 +65,18 @@ export default function initOrderItem(sequelize) {
       underscored: true
     }
   );
+
+  OrderItem.addHook('afterCreate', async (orderItem, options) => {
+    await updateOrderTotal(orderItem.orderId, options?.transaction);
+  });
+
+  OrderItem.addHook('afterUpdate', async (orderItem, options) => {
+    await updateOrderTotal(orderItem.orderId, options?.transaction);
+  });
+
+  OrderItem.addHook('afterDestroy', async (orderItem, options) => {
+    await updateOrderTotal(orderItem.orderId, options?.transaction);
+  });
 
   return OrderItem;
 }
