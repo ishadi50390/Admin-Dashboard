@@ -1,0 +1,45 @@
+{
+  "name": "admin-dashboard",
+  "version": "1.0.0",
+  "description": "Role-based eCommerce Admin Dashboard built with AdminJS, Sequelize, and PostgreSQL",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "db:migrate": "sequelize-cli db:migrate",
+    "db:seed": "sequelize-cli db:seed:all",
+    "seed:admin": "node src/scripts/seedAdmin.js"
+  },
+  "keywords": [
+    "adminjs",
+    "sequelize",
+    "postgres",
+    "express"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@adminjs/express": "^6.1.0",
+    "@adminjs/sequelize": "^4.1.1",
+    "@tiptap/core": "^2.27.1",
+    "adminjs": "^7.8.17",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-formidable": "^1.2.0",
+    "express-session": "^1.17.3",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.11.5",
+    "pg-hstore": "^2.3.4",
+    "sequelize": "^6.37.3"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@babel/node": "^7.25.0",
+    "eslint": "^8.57.0",
+    "nodemon": "^3.1.4",
+    "sequelize-cli": "^6.6.2"
+  }
+}
