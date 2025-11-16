@@ -4,6 +4,7 @@ import session from 'express-session';
 import dotenv from 'dotenv';
 import adminJs, { buildAdminRouter } from './admin/index.js';
 import authRoutes from './routes/authRoutes.js';
+import orderRoutes from './routes/orderRoutes.js';
 import { User } from './models/index.js';
 
 dotenv.config();
@@ -25,6 +26,7 @@ app.get('/health', (req, res) => {
 });
 
 app.use('/api', authRoutes);
+app.use('/api/orders', orderRoutes);
 
 const adminRouter = buildAdminRouter(async (email, password) => {
   const user = await User.findOne({ where: { email } });

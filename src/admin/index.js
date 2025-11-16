@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import AdminJS from 'adminjs';
+import AdminJS, { ValidationError } from 'adminjs';
 import AdminJSExpress from '@adminjs/express';
 import AdminJSSequelize from '@adminjs/sequelize';
 import componentLoader from './componentLoader.js';
@@ -18,6 +18,52 @@ AdminJS.registerAdapter(AdminJSSequelize);
 const isAdmin = ({ currentAdmin }) => currentAdmin?.role === 'admin';
 const isAuthenticated = ({ currentAdmin }) => Boolean(currentAdmin);
 
+const fetchOrderIdsForUser = async (userId) => {
+  if (!userId) {
+    return [];
+  }
+
+  const orders = await Order.findAll({
+    where: { userId },
+    attributes: ['id'],
+    raw: true
+  });
+
+  return orders.map((order) => order.id);
+};
+
+const ownsOrder = async (userId, orderId) => {
+  if (!userId || !orderId) {
+    return false;
+  }
+
+  const order = await Order.findByPk(orderId, {
+    attributes: ['id', 'userId'],
+    raw: true
+  });
+
+  return order?.user_id === userId;
+};
+
+const ownsOrderItem = async (userId, orderItemId) => {
+  if (!userId || !orderItemId) {
+    return false;
+  }
+
+  const orderItem = await OrderItem.findByPk(orderItemId, {
+    attributes: ['id', 'orderId'],
+    include: [
+      {
+        model: Order,
+        as: 'order',
+        attributes: ['userId']
+      }
+    ]
+  });
+
+  return Boolean(orderItem) && orderItem.order?.userId === userId;
+};
+
 const setPasswordField = async (request) => {
   if (!request.payload) {
     return request;
@@ -25,7 +71,7 @@ const setPasswordField = async (request) => {
 
   if (request.payload.setPassword) {
     if (!request.payload.setPassword.trim()) {
-      throw new AdminJS.ValidationError({
+        throw new ValidationError({
         setPassword: {
           message: 'Password cannot be empty'
         }
@@ -236,7 +282,7 @@ const adminJs = new AdminJS({
             isVisible: { list: true, filter: true, show: true, edit: false, new: false }
           },
           userId: {
-            isVisible: { list: false, filter: true, show: true, edit: true }
+            isVisible: { list: false, filter: true, show: true, edit: true, new: true }
           }
         },
         actions: {
@@ -273,9 +319,69 @@ const adminJs = new AdminJS({
               return response;
             }
           },
-          new: { isAccessible: isAdmin },
-          edit: { isAccessible: isAdmin },
-          delete: { isAccessible: isAdmin }
+          new: {
+            isAccessible: isAuthenticated,
+            before: async (request, context) => {
+              if (!request.payload) {
+                return request;
+              }
+
+              if (!isAdmin(context)) {
+                request.payload = {
+                  ...request.payload,
+                  userId: context.currentAdmin.id,
+                  status: request.payload.status || 'pending'
+                };
+              }
+
+              return request;
+            }
+          },
+          edit: {
+            isAccessible: isAuthenticated,
+            before: async (request, context) => {
+              if (isAdmin(context)) {
+                return request;
+              }
+
+              const orderId = request.params?.recordId;
+              const authorized = await ownsOrder(context.currentAdmin.id, orderId);
+
+              if (!authorized) {
+                  throw new ValidationError({
+                  _error: 'You are not authorized to update this order'
+                });
+              }
+
+              if (request.payload) {
+                request.payload = {
+                  ...request.payload,
+                  userId: context.currentAdmin.id
+                };
+              }
+
+              return request;
+            }
+          },
+          delete: {
+            isAccessible: isAuthenticated,
+            before: async (request, context) => {
+              if (isAdmin(context)) {
+                return request;
+              }
+
+              const orderId = request.params?.recordId;
+              const authorized = await ownsOrder(context.currentAdmin.id, orderId);
+
+              if (!authorized) {
+                  throw new ValidationError({
+                  _error: 'You are not authorized to delete this order'
+                });
+              }
+
+              return request;
+            }
+          }
         }
       }
     },
@@ -286,11 +392,123 @@ const adminJs = new AdminJS({
           name: 'Orders'
         },
         actions: {
-          list: { isAccessible: isAdmin },
-          show: { isAccessible: isAdmin },
-          new: { isAccessible: isAdmin },
-          edit: { isAccessible: isAdmin },
-          delete: { isAccessible: isAdmin }
+          list: {
+            isAccessible: isAuthenticated,
+            after: async (response, request, context) => {
+              if (isAdmin(context) || !response?.records?.length) {
+                return response;
+              }
+
+              const allowedOrderIds = new Set(await fetchOrderIdsForUser(context.currentAdmin.id));
+              const filteredRecords = response.records.filter((record) =>
+                allowedOrderIds.has(record.params.orderId)
+              );
+
+              return {
+                ...response,
+                records: filteredRecords,
+                meta: {
+                  ...response.meta,
+                  total: filteredRecords.length
+                }
+              };
+            }
+          },
+          show: {
+            isAccessible: isAuthenticated,
+            after: async (response, request, context) => {
+              if (isAdmin(context) || !response.record) {
+                return response;
+              }
+
+              const allowedOrderIds = new Set(await fetchOrderIdsForUser(context.currentAdmin.id));
+
+              if (!allowedOrderIds.has(response.record.params.orderId)) {
+                return {
+                  ...response,
+                  notice: {
+                    message: 'You are not authorized to view this order item',
+                    type: 'error'
+                  },
+                  record: null
+                };
+              }
+
+              return response;
+            }
+          },
+          new: {
+            isAccessible: isAuthenticated,
+            before: async (request, context) => {
+              if (isAdmin(context) || !request.payload) {
+                return request;
+              }
+
+              const allowedOrderIds = new Set(await fetchOrderIdsForUser(context.currentAdmin.id));
+              const { orderId } = request.payload;
+
+              if (!orderId || !allowedOrderIds.has(orderId)) {
+                  throw new ValidationError({
+                  orderId: {
+                    message: 'You can only add items to your own orders'
+                  }
+                });
+              }
+
+              return request;
+            }
+          },
+          edit: {
+            isAccessible: isAuthenticated,
+            before: async (request, context) => {
+              if (isAdmin(context)) {
+                return request;
+              }
+
+              const itemId = request.params?.recordId;
+              const authorized = await ownsOrderItem(context.currentAdmin.id, itemId);
+
+              if (!authorized) {
+                  throw new ValidationError({
+                  _error: 'You are not authorized to update this order item'
+                });
+              }
+
+              if (request.payload) {
+                const orderItem = await OrderItem.findByPk(itemId, {
+                  attributes: ['orderId']
+                });
+
+                if (orderItem) {
+                  request.payload = {
+                    ...request.payload,
+                    orderId: orderItem.orderId
+                  };
+                }
+              }
+
+              return request;
+            }
+          },
+          delete: {
+            isAccessible: isAuthenticated,
+            before: async (request, context) => {
+              if (isAdmin(context)) {
+                return request;
+              }
+
+              const itemId = request.params?.recordId;
+              const authorized = await ownsOrderItem(context.currentAdmin.id, itemId);
+
+              if (!authorized) {
+                  throw new ValidationError({
+                  _error: 'You are not authorized to delete this order item'
+                });
+              }
+
+              return request;
+            }
+          }
         }
       }
     },
